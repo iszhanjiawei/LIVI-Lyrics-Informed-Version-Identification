@@ -38,3 +38,70 @@ def load_audio(
         waveform = resampler(waveform)
 
     return waveform
+
+
+def split_audio_30s(
+    waveform: torch.Tensor,
+    sample_rate: int = 16_000,
+    chunk_sec: float = 30.0,
+) -> list[torch.Tensor]:
+    """
+    将音频分割成 30 秒的块（非重叠）。
+    
+    Args:
+        waveform: 音频张量，形状 (T,)
+        sample_rate: 采样率
+        chunk_sec: 块的长度（秒）
+    
+    Returns:
+        音频块列表
+    """
+    chunk_size = int(sample_rate * chunk_sec)
+    chunks = []
+    
+    for start in range(0, len(waveform), chunk_size):
+        chunk = waveform[start:start + chunk_size]
+        # 如果块小于 chunk_size，用零填充
+        if len(chunk) < chunk_size:
+            chunk = torch.nn.functional.pad(chunk, (0, chunk_size - len(chunk)))
+        chunks.append(chunk)
+    
+    return chunks
+
+
+def split_audio_predefined(
+    waveform: torch.Tensor,
+    segments: list[tuple[float, float]],
+    sample_rate: int = 16_000,
+    chunk_sec: float = 30.0,
+) -> list[torch.Tensor]:
+    """
+    根据预定义的时间段分割音频。
+    
+    Args:
+        waveform: 音频张量，形状 (T,)
+        segments: 时间段列表 [(start_sec, end_sec), ...]
+        sample_rate: 采样率
+        chunk_sec: 目标块长度（秒）
+    
+    Returns:
+        音频块列表
+    """
+    chunk_size = int(sample_rate * chunk_sec)
+    chunks = []
+    
+    for start_sec, end_sec in segments:
+        start_sample = int(start_sec * sample_rate)
+        end_sample = int(end_sec * sample_rate)
+        
+        chunk = waveform[start_sample:end_sample]
+        
+        # 截断或填充到 chunk_size
+        if len(chunk) > chunk_size:
+            chunk = chunk[:chunk_size]
+        elif len(chunk) < chunk_size:
+            chunk = torch.nn.functional.pad(chunk, (0, chunk_size - len(chunk)))
+        
+        chunks.append(chunk)
+    
+    return chunks

@@ -54,8 +54,7 @@ train:
   epochs:             3
 
 # ============================== LOGGING ==============================
-wandb:
-  project:          LIVI
+logging:
   log_dir:          src/livi/apps/audio_encoder/logs
   log_steps:        200
 

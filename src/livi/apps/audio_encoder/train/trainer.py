@@ -16,7 +16,7 @@ from loguru import logger
 from omegaconf import DictConfig, OmegaConf
 from torch.optim.lr_scheduler import LambdaLR
 from tqdm import tqdm
-import wandb
+from torch.utils.tensorboard import SummaryWriter
 
 from livi.apps.audio_encoder.data.dataset import make_loader
 from livi.apps.audio_encoder.models.whisper_encoder import WhisperEncoder
@@ -98,15 +98,14 @@ class Trainer:
         self.scheduler = get_linear_warmup_scheduler(self.optimizer, warmup_steps=cfg.optimizer.warmup_steps)
 
         # ----- logging -----
-        self.log_every_n = int(cfg.wandb.log_steps)
-        self.log_dir = str(cfg.wandb.log_dir)
+        self.log_every_n = int(cfg.logging.log_steps)
+        self.log_dir = str(cfg.logging.log_dir)
         os.makedirs(self.log_dir, exist_ok=True)
 
-        wandb.init(
-            project=cfg.wandb.project,
-            config=OmegaConf.to_container(cfg, resolve=True),
-            dir=self.log_dir,
-        )
+        # TensorBoard writer
+        tensorboard_dir = os.path.join(self.log_dir, "tensorboard")
+        self.writer = SummaryWriter(log_dir=tensorboard_dir)
+        logger.info(f"TensorBoard logs: {tensorboard_dir}")
 
     # ----------------------------------------------------------------
     # Training step
@@ -169,16 +168,10 @@ class Trainer:
 
         lr = self.optimizer.param_groups[0]["lr"]
 
-        wandb.log(
-            {
-                "train/loss": self._safe_mean(loss),
-                "train/cosine_sim": self._safe_mean(F.cosine_similarity(pred, target)),
-                "train/audio_norm": self._safe_mean(pred.norm(dim=1)),
-                "train/grad_norm": grad_norm,
-                "train/learning_rate": lr,
-            },
-            step=step,
-        )
+        # TensorBoard logging
+        self.writer.add_scalar("train/loss", self._safe_mean(loss), step)
+        self.writer.add_scalar("train/cosine_sim", self._safe_mean(F.cosine_similarity(pred, target)), step)
+        self.writer.add_scalar("train/lr", lr, step)
 
     # ----------------------------------------------------------------
     # Validation
@@ -216,7 +209,9 @@ class Trainer:
         keys = metrics_list[0].keys()
         metrics = {k: float(np.mean([m[k] for m in metrics_list])) for k in keys}
 
-        wandb.log({f"val/{k}": v for k, v in metrics.items()}, step=(epoch + 1))
+        # TensorBoard logging
+        for k, v in metrics.items():
+            self.writer.add_scalar(f"val/{k}", v, epoch + 1)
         return metrics
 
     # ----------------------------------------------------------------
@@ -229,8 +224,8 @@ class Trainer:
         Args:
             epoch: Current epoch index (0-based).
         """
-        run_name = wandb.run.name if wandb.run else "default_run"
-        out_path = Path(self.cfg.model.checkpoint_dir) / run_name / f"epoch_{epoch}.pth"
+        run_name = "tensorboard_run"
+        out_path = Path(self.cfg.model.checkpoint_dir) / run_name / f"epoch_{epoch}.pt"
         out_path.parent.mkdir(parents=True, exist_ok=True)
         torch.save(self.model.state_dict(), out_path)
         logger.info(f"Saved checkpoint: {out_path}")
