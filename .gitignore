@@ -23,4 +23,6 @@ poetry.lock
 # OS/editor noise
 .DS_Store
 *.swp
-
+*.safetensors
+*.iml
+*.pdf

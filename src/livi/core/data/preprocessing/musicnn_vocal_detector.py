@@ -37,7 +37,7 @@ class MusicnnVocalDetector:
     - 全局人声分数 = 所有窗口的平均值
     - 过滤人声分数 < λ 的歌曲
     - 保留 v ≥ 0.5 的窗口，连接成连续区域
-    - 对称填充最多 10 秒，截断/零填充到 30 秒
+    - 对称填充最多 1 秒，截断/零填充到 30 秒
     """
     
     def __init__(
@@ -47,7 +47,7 @@ class MusicnnVocalDetector:
         window_sec: float = 3.0,
         vocal_threshold: float = 0.5,
         min_global_vocalness: float = 0.3,
-        padding_sec: float = 10.0,
+        padding_sec: float = 1.0,
         musicnn_model: str = 'MTT_musicnn',
         use_simple_heuristic: bool = True,
     ):
@@ -58,7 +58,7 @@ class MusicnnVocalDetector:
             window_sec: 检测窗口大小（秒），论文中为 3 秒
             vocal_threshold: 人声概率阈值，保留 v ≥ threshold 的窗口
             min_global_vocalness: 最小全局人声分数 λ，低于此值的歌曲会被跳过
-            padding_sec: 对称填充长度（秒），论文中为最多 10 秒
+            padding_sec: 对称填充长度（秒），优化后为 1 秒
             musicnn_model: Musicnn 模型名称
             use_simple_heuristic: 是否使用简单启发式（因为没有训练好的分类器）
         """
