@@ -63,7 +63,23 @@ class Session:
             preprocess_dir=preprocess_dir,
         )
 
-    def inference(self, audio_path: str) -> torch.Tensor:
+    def inference(self, audio_path: str, return_valid_indices: bool = False):
+        """
+        对单个音频文件执行推理，生成歌词嵌入。
+        
+        Parameters
+        ----------
+        audio_path : str
+            音频文件路径
+        return_valid_indices : bool, default=False
+            如果为 True，返回 (embeddings, valid_indices)，
+            其中 valid_indices 是有效 chunk 的原始索引列表。
+            如果为 False（默认），仅返回 embeddings，保持向后兼容。
+        
+        Returns
+        -------
+        np.ndarray or Tuple[np.ndarray, List[int]]
+        """
         waveform = load_audio(audio_path, target_sample_rate=self.cfg.data.sr)
 
         # Extract 30s audio chunks using preprocessing info or simple chunking
@@ -82,9 +98,14 @@ class Session:
             del chunks_audio
             
             if self.cfg.text_encoder.chunking:
-                inputs = [x for x in transcriptions[0] if x]  # 过滤掉那些无效的。
+                texts = transcriptions[0]
+                mask = transcriptions[1]
+                # 记录有效 chunk 的原始索引（用于后续与音频对齐）
+                valid_indices = [i for i, ok in enumerate(mask) if ok]
+                inputs = [texts[i] for i in valid_indices]
             else:
                 inputs = transcriptions[-1]
+                valid_indices = list(range(len(inputs))) if inputs else []
             
             # 释放 transcriptions，避免累积
             del transcriptions
@@ -109,6 +130,8 @@ class Session:
         if isinstance(embeddings, torch.Tensor):
             embeddings = embeddings.cpu().numpy()
         
+        if return_valid_indices:
+            return embeddings, valid_indices
         return embeddings
 
     def estimate_inference_time(
@@ -253,13 +276,22 @@ def run_inference_from_list(
     for i, audio_path in enumerate(audio_paths, 1):
         print(f"\r处理进度: {i}/{len(audio_paths)} ({i*100//len(audio_paths)}%)", end='', flush=True)
         
-        emb = session.inference(str(audio_path))
+        emb, valid_indices = session.inference(str(audio_path), return_valid_indices=True)
         filename = Path(audio_path).stem
         
         # 确保 embedding 在 CPU 上（numpy 数组）
         if isinstance(emb, torch.Tensor):
             emb = emb.cpu().numpy()
-        embeddings[filename] = emb
+        
+        # 以 chunk 级别的 key 保存：songname_chunkindex
+        # 这样后续构建 WebDataset 时能根据 chunk 索引精确对齐音频和歌词嵌入
+        if emb.ndim == 2 and len(valid_indices) == emb.shape[0]:
+            for j, chunk_idx in enumerate(valid_indices):
+                chunk_key = f"{filename}_{chunk_idx}"
+                embeddings[chunk_key] = emb[j]
+        elif emb.ndim == 1:
+            # 单个嵌入（get_single_embedding=True 的情况）
+            embeddings[filename] = emb
         
         # 每首歌处理完后立即清理，防止累积
         del emb
