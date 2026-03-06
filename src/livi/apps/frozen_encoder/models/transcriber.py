@@ -131,6 +131,7 @@ class Transcriber:
         self,
         audio_chunks: List[np.ndarray],
         translate: bool = False,
+        max_batch_size: int = 2,
     ) -> Optional[Tuple[List[str], List[bool], str]]:
         """
         Transcribe a list of audio chunks, clean + filter results, and
@@ -142,6 +143,9 @@ class Transcriber:
             List of 1D arrays at `self.sampling_rate`.
         translate : bool
             If True, set gen_kwargs["language"] = "en".
+        max_batch_size : int
+            Maximum number of chunks to process in a single Whisper forward pass.
+            Limits peak GPU memory regardless of how many chunks a song has.
 
         Returns
         -------
@@ -149,37 +153,63 @@ class Transcriber:
             - (texts, mask), where texts is the list of
             per-chunk strings, mask is a parallel list of booleans
         """
-        # ---- feature extraction with fallback ----
-        processed = self.processor(
-            audio_chunks,
-            sampling_rate=self.sampling_rate,
-            return_tensors="pt",
-            padding="longest",
-            truncation=False,
-            return_attention_mask=True,
-        )
-        if processed["input_features"].shape[-1] < 3000:
-            processed = self.processor(
-                audio_chunks,
-                return_tensors="pt",
-                sampling_rate=self.sampling_rate,
-            )
-
-        processed = {k: v.to(self.device, dtype=self.torch_dtype) for k, v in processed.items()}
-
         # ---- gen kwargs ----
         gen_kwargs = self._build_gen_kwargs(translate)
 
-        # ---- forward pass ----
-        with torch.no_grad():
-            pred_ids = self.model.generate(**processed, **gen_kwargs)
-            raw_texts = self.processor.batch_decode(pred_ids, skip_special_tokens=True)
+        # ---- sub-batch forward pass to cap peak GPU memory ----
+        raw_texts = []
+        for batch_start in range(0, len(audio_chunks), max_batch_size):
+            batch_chunks = audio_chunks[batch_start:batch_start + max_batch_size]
+
+            # ---- feature extraction with fallback ----
+            processed = self.processor(
+                batch_chunks,
+                sampling_rate=self.sampling_rate,
+                return_tensors="pt",
+                padding="longest",
+                truncation=False,
+                return_attention_mask=True,
+            )
+            if processed["input_features"].shape[-1] < 3000:
+                processed = self.processor(
+                    batch_chunks,
+                    return_tensors="pt",
+                    sampling_rate=self.sampling_rate,
+                )
+
+            processed = {k: v.to(self.device, dtype=self.torch_dtype) for k, v in processed.items()}
+
+            with torch.no_grad():
+                pred_ids = self.model.generate(**processed, **gen_kwargs)
+                batch_texts = self.processor.batch_decode(pred_ids, skip_special_tokens=True)
+                raw_texts.extend(batch_texts)
+
+                # 显式释放GPU张量，避免累积
+                del pred_ids
+                del processed
+            
+            # 每个 sub-batch 后释放缓存，防止峰值显存累积
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
 
         # ---- cleaning ----
         cleaned = self.clean_transcription(raw_texts)
 
-        # ---- filtering: keep if not empty & has enough words ----
-        mask = [t.strip() != "" and len(t.split()) >= self.min_words_per_chunk for t in cleaned]
+        # ---- filtering: keep if not empty & has enough words/characters ----
+        def has_enough_content(text: str) -> bool:
+            """判断文本是否有足够内容（区分中英文）"""
+            if not text.strip():
+                return False
+            # 检查是否包含中文字符
+            has_chinese = any('\u4e00' <= char <= '\u9fff' for char in text)
+            if has_chinese:
+                # 中文：直接计算字符数（去除空格）
+                return len(text.replace(' ', '')) >= self.min_words_per_chunk
+            else:
+                # 英文：计算单词数
+                return len(text.split()) >= self.min_words_per_chunk
+        
+        mask = [has_enough_content(t) for t in cleaned]
         texts = [t if ok else "" for t, ok in zip(cleaned, mask)]
 
         # joined_text = "\n\n".join([t for t, ok in zip(texts, mask) if ok])

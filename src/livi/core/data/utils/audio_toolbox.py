@@ -7,6 +7,8 @@ Reusable helpers for loading, resampling, and preprocessing audio...
 import torch
 import torchaudio
 import torchaudio.transforms as T
+import librosa
+import numpy as np
 
 
 def load_audio(
@@ -18,15 +20,22 @@ def load_audio(
     Load an audio file, convert to mono, and resample.
 
     Args:
-        path (str): Path to the audio file (e.g. .mp3, .wav).
+        path (str): Path to the audio file (e.g. .mp3, .wav, .m4a).
         target_sample_rate (int): Desired sample rate (Hz). Default = 16k.
         mono (bool): If True, convert multi-channel audio to mono.
 
     Returns:
         torch.Tensor: Waveform tensor of shape (T,), resampled and optionally mono.
     """
-    # Load waveform
-    waveform, sr = torchaudio.load_with_torchcodec(path)  # shape (C, T)
+    # Try torchaudio first, fallback to librosa for better compatibility
+    try:
+        waveform, sr = torchaudio.load_with_torchcodec(path)  # shape (C, T)
+    except Exception:
+        # Fallback to librosa for formats like .m4a
+        waveform_np, sr = librosa.load(path, sr=None, mono=mono)
+        waveform = torch.from_numpy(waveform_np)
+        if waveform.ndim == 1:
+            waveform = waveform.unsqueeze(0)  # Add channel dimension
 
     # Convert to mono if multiple channels
     if mono and waveform.shape[0] > 1:
@@ -36,8 +45,13 @@ def load_audio(
     if sr != target_sample_rate:
         resampler = T.Resample(orig_freq=sr, new_freq=target_sample_rate)
         waveform = resampler(waveform)
+        del resampler  # 显式释放 resampler，避免累积
+    
+    # 确保张量分离并在CPU上，避免GPU累积
+    if waveform.is_cuda:
+        waveform = waveform.cpu()
 
-    return waveform
+    return waveform.detach()
 
 
 def split_audio_30s(

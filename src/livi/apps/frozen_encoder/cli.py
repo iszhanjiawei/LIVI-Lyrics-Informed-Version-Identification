@@ -4,8 +4,6 @@ from pathlib import Path
 from livi.utils.paths import p
 
 from typing import Optional, List
-from livi.apps.frozen_encoder.models.transcriber import transcribe_dataset
-from livi.apps.frozen_encoder.models.text_encoder import encode_text_dataset
 from livi.config import settings
 from livi.apps.frozen_encoder.infer.session import run_inference_single, run_estimate_time, run_inference
 

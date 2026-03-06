@@ -70,7 +70,17 @@ class TextEncoder:
         """
         kwargs = {"task": "retrieval.query", "prompt": "retrieval.query"} if "jina" in self.model_name else {}
 
-        return self.model.encode(inputs, normalize_embeddings=True, device=self.device, batch_size=batch_size, **kwargs)
+        embeddings = self.model.encode(inputs, normalize_embeddings=True, device=self.device, batch_size=batch_size, **kwargs)
+        
+        # 确保返回numpy数组（在CPU上），避免GPU张量累积
+        if isinstance(embeddings, torch.Tensor):
+            embeddings = embeddings.cpu().numpy()
+        
+        # 强制清理 GPU 缓存，防止 Text Encoder 的张量累积
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        
+        return embeddings
 
     def encode_chunks(
         self,
@@ -122,10 +132,19 @@ class TextEncoder:
             embs = self.encode(chunks, batch_size=batch_size).astype(np.float32)
             if get_single_embedding:
                 embs = np.mean(embs, axis=0, keepdims=True)
+            
+            # 显式释放chunks，避免累积
+            del chunks
+            
+            # 强制清理 GPU 缓存
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
 
         except Exception:
             logger.warning(f"Encoding failed.")
             return
+        
+        # 确保返回numpy数组（已经在CPU上）
         return embs
 
 
@@ -194,7 +213,9 @@ def encode_text(
         model_name=model_name or "Alibaba-NLP/gte-multilingual-base", chunking=chunking
     )
 
-    if chunking != enc.chunker:
+    # 检查 chunking 配置是否匹配（避免重复创建模型）
+    if bool(enc.chunker) != chunking:
+        logger.warning(f"TextEncoder chunking mismatch: expected {chunking}, got {bool(enc.chunker)}. This should not happen if using cached encoder.")
         enc = TextEncoder(model_name=model_name or enc.model_name, chunking=chunking)
 
     if chunking:

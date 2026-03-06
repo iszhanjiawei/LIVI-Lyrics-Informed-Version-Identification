@@ -2,6 +2,8 @@
 trigger: always_on
 ---
 
+在编写代码的时候，如果很多功能在其他脚本里面已经实现了，请不要重复实现，而是要复用已有的代码，不要再重复造轮子，已经有相同功能的代码了，坚决不要自己重新写一遍，能复用就不要原创。
+
 1、涉及到 musicnn 模块对数据的预处理，请使用 musicnn 模块的虚拟环境, 也就是 musicnn_env  这个虚拟环境，使用 conda activate musicnn_env 激活 musicnn 模块的虚拟环境
 
 2、不涉及到使用musicnn模块对数据的处理的话，执行命令脚本的话，请在 LIVI 虚拟环境下面运行，使用命令 conda activate LIVI ，激活 LIVI 虚拟环境。
