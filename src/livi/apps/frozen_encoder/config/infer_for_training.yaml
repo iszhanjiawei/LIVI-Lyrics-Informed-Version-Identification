@@ -1,0 +1,59 @@
+# ============================== DATA (audio + vocal detection) ================================
+# 配置说明：此配置用于准备 Audio Encoder 训练数据
+# 目标：为每个30秒人声片段生成独立的歌词嵌入，用于与音频 Mel 频谱配对训练
+# ================================================================================================
+
+data:
+  sr: 16000                           # Whisper 标准采样率
+  chunk_sec: 30.0                     # 30秒片段（与 Audio Encoder 训练时的输入长度一致）
+  
+  # 启用预处理模式（使用 Musicnn 预处理的人声片段 JSON）
+  use_preprocess: true
+  preprocess_dir: "/home/zjw524/projects/LIVI_project_data/data/train_data/vocal_segments"  # Musicnn 预处理结果目录（新路径）
+
+# ============================== WHISPER TRANSCRIBER ================================
+transcriber:
+  # 使用本地模型路径
+  model_name: "/home/zjw524/projects/LIVI-Lyrics-Informed-Version-Identification/pretrained_models/whisper-large-v3-turbo"
+  translate: false                    # 保持原语言，不翻译为英文
+
+  # 精度 / 设备策略
+  dtype_fp16_on_cuda: true            # CUDA 上使用 FP16 节省显存
+
+  # 解码 / 生成参数
+  num_beams: 1                        # Beam search 宽度（1=贪婪解码）
+  condition_on_prev_tokens: false     # 不使用前文条件
+  compression_ratio_threshold: 1.35   # 压缩率阈值（检测重复）
+  temperature: [0.0, 0.2, 0.4, 0.6, 0.8, 1.0]  # 温度回退策略
+  logprob_threshold: -1.0             # 对数概率阈值
+  return_timestamps: true             # 返回时间戳
+
+  # 文本清理
+  remove_phrases: ["Thank you.", "music"]  # 删除常见幻觉短语
+  repeat_threshold: 3                 # 合并重复 >= 3 次的词
+  min_words_per_chunk: 4              # 过滤少于 4 词/字的片段（自动检测中英文）
+
+# ============================== TEXT ENCODER ================================
+# 关键配置：为训练数据准备片段级嵌入
+# ==================================================================================
+text_encoder:
+  # 使用本地模型路径
+  model_name: "/home/zjw524/projects/LIVI-Lyrics-Informed-Version-Identification/pretrained_models/gte-multilingual-base"
+  
+  # ⚠️ 关键参数 1：启用 chunking
+  # 原因：输入是列表（多个30秒片段的转录），chunking=true 会将列表当作"已切分的块"，分别编码每个片段
+  # 注意：这里不是用 RecursiveCharacterTextSplitter 切分文本，而是把列表的每个元素作为独立块编码
+  chunking: true
+  
+  batch_size: 8                       # 编码批大小
+  
+  # ⚠️ 关键参数 2：不要平均池化，保留每个片段的独立嵌入
+  # 原因：训练时需要每个30秒片段的独立嵌入向量，用于与音频 Mel 频谱配对
+  # get_single_embedding=false 会保留 (num_segments, 768) 而不是平均成 (1, 768)
+  get_single_embedding: false
+
+# ============================== (Optional) ESTIMATION DEFAULTS ================================
+estimate:
+  sample_size: 200                    # 估计时使用的样本数
+  start_after: 5                      # 跳过前 N 次迭代的预热时间
+  seed: 42                            # 随机种子
