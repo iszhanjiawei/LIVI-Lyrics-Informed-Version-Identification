@@ -30,8 +30,8 @@ def main():
     # 配置文件（使用训练数据准备配置）
     config_path = project_root / "src/livi/apps/frozen_encoder/config/infer_for_training.yaml"
     
-    # 读取音频路径列表（新路径）
-    audio_list_file = Path("/home/zjw524/projects/LIVI_project_data/data/train_data/training_audio_paths.txt")
+    # 读取音频路径列表（中文歌曲）
+    audio_list_file = Path("/home/zjw524/projects/LIVI_project_data/data/train_data/training_audio_paths_chinese.txt")
     with open(audio_list_file, 'r', encoding='utf-8') as f:
         all_audio_paths = [line.strip() for line in f if line.strip()]
     
@@ -47,8 +47,8 @@ def main():
     print(f"配置文件: {config_path}")
     print("=" * 80)
     
-    # 输出目录（新路径）
-    output_dir = Path("/home/zjw524/projects/LIVI_project_data/data/train_data/embeddings")
+    # 输出目录（中文歌曲嵌入）
+    output_dir = Path("/home/zjw524/projects/LIVI_project_data/data/train_data/chinese_embeddings")
     output_dir.mkdir(parents=True, exist_ok=True)
     output_file = output_dir / f"segment_embeddings_gpu{args.gpu_id}_{args.start_idx}_{args.end_idx}.npz"
     

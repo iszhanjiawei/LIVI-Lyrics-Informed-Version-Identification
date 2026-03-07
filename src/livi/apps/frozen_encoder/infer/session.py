@@ -244,7 +244,7 @@ def run_inference_from_list(
     config_path: Path,
     audio_paths: List[Path],
     path_out: Optional[Path] = None,
-    save_interval: int = 10,
+    save_interval: int = 100,
 ) -> Dict[str, np.ndarray]:
     """
     Run frozen-encoder inference on a list of audio files.
@@ -278,6 +278,10 @@ def run_inference_from_list(
         
         emb, valid_indices = session.inference(str(audio_path), return_valid_indices=True)
         filename = Path(audio_path).stem
+        
+        # 跳过没有有效 chunk 的音频（emb 为 None 或空）
+        if emb is None:
+            continue
         
         # 确保 embedding 在 CPU 上（numpy 数组）
         if isinstance(emb, torch.Tensor):
